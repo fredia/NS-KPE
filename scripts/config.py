@@ -23,10 +23,7 @@ def add_default_args(parser):
     modes.add_argument('--dataset_class', type=str, choices=['openkp', 'kp20k', 'inspec', 'nus', 'krapivin', 'semeval'],
                        help='Select datasets.')
     modes.add_argument('--model_class', type=str,
-                       choices=['bert2span', 'bert2tag', 'bert2chunk', 'bert2rank', 'bert2joint', 'bert2cos',
-                                'emb2joint', 'bert2crf', 'bert2stage', 'bert2gi', 'bert2topic', 'bert2topic2',
-                                'bert2topic14', 'bert2vae',
-                                'bert2lda', 'bert2ldacon'],
+                       choices=['bert2chunk'],
                        help='Select different model types.')
     modes.add_argument("--pretrain_model_type", type=str,
                        choices=['bert-base-cased', 'spanbert-base-cased', 'roberta-base'],

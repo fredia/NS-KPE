@@ -131,9 +131,12 @@ class RobertaForCnnGramExtractor(RobertaForCnnGramClassification):
             negative_logits = torch.masked_select(logits, negative_mask).view([-1, 2])
             merge_negative_logits = torch.cat([negative_logits, mask_positivate_logits], dim=0)
             negative_num = merge_negative_logits.size(0)
+            perm = torch.randperm(negative_num).to(device)
+            sampling_num = int(np.ceil(self.sampling_rate * negative_num))
+            negative_sample = torch.index_select(merge_negative_logits, 0, perm[:sampling_num])
 
-            merge_logits = torch.cat([remain_positivate_logits, merge_negative_logits], dim=0).view(-1, self.num_labels)
-            merge_lables = torch.cat([labels.data.new_ones([remain_num]), labels.data.new_zeros([negative_num])],
+            merge_logits = torch.cat([remain_positivate_logits, negative_sample], dim=0).view(-1, self.num_labels)
+            merge_lables = torch.cat([labels.data.new_ones([remain_num]), labels.data.new_zeros([sampling_num])],
                                      dim=0)
 
             loss_fct = CrossEntropyLoss(reduction='mean')
