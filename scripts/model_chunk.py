@@ -1,13 +1,10 @@
 import logging
-import numpy as np
 
 import torch
-from torch import nn
 import torch.nn.functional as F
-from utils import override_args
-from bertkpe import Idx2Tag, networks, generator, config_class
-from bertkpe.transformers import AdamW, WarmupLinearSchedule
-import numpy as np
+from scripts.utils import override_args
+from ..transformers import AdamW, WarmupLinearSchedule, RobertaConfig
+from network import Roberta2Chunk
 
 logger = logging.getLogger()
 
@@ -20,31 +17,18 @@ class KeyphraseSpanExtraction(object):
         self.updates = 0
 
         # select model
-        network = networks.RobertaForCnnGramExtractor7
+        network = Roberta2Chunk.RobertaForCnnGramExtractor
         # select config
-        args.num_labels = 2 if (args.model_class != 'bert2tag' or args.model_class != 'bert2crf') else len(Idx2Tag)
+        args.num_labels = 2
         logger.info('Config num_labels = %d' % args.num_labels)
-        model_config = config_class[args.pretrain_model_type].from_pretrained(args.cache_dir,
-                                                                              num_labels=args.num_labels)
+        model_config = RobertaConfig.from_pretrained(args.cache_dir, num_labels=args.num_labels)
         # '../data/nofilter_dataset/kp20k/topic_30_bert_lastl.npy'
-        model_config.upper = args.upper
-        model_config.tagger = args.tagger
-        model_config.sn = args.sn
-        model_config.pis = args.pis
-        model_config.alpha = args.alpha  # 左右两部分loss比重
         model_config.sampling_rate = args.sampling_rate
         model_config.mask_rate = args.mask_rate
-        model_config.topic_num = args.topic_num
         model_config.word_emb_dim = 768
         model_config.hidden_dropout_prob = 0.1
-        model_config.tagger_num = 46
-        model_config.sent_num, model_config.pos_in_sent = 86, 385
 
-        # load pretrained model
-        if args.model_class == 'emb2joint':
-            self.network = network(model_config)
-        else:
-            self.network = network.from_pretrained(args.cache_dir, config=model_config)
+        self.network = network.from_pretrained(args.cache_dir, config=model_config)
         # load checkpoint
         if state_dict is not None:
             self.network.load_state_dict(state_dict)
@@ -109,59 +93,6 @@ class KeyphraseSpanExtraction(object):
     # -------------------------------------------------------------------------------------------
     # -------------------------------------------------------------------------------------------
     # test
-
-    # bert2span
-    def test_bert2span(self, inputs, lengths):
-        self.network.eval()
-        with torch.no_grad():
-            s_logits, e_logits = self.network(**inputs)
-
-        assert s_logits.size(0) == e_logits.size(0) == sum(lengths)
-        s_logits = s_logits.data.cpu().tolist()
-        e_logits = e_logits.data.cpu()
-
-        start_lists, end_lists = [], []
-        sum_len = 0
-        for l in lengths:
-            start_lists.append(s_logits[sum_len:(sum_len + l)])
-            end_lists.append(e_logits[sum_len:(sum_len + l), :l].tolist())
-            sum_len += l
-        return start_lists, end_lists
-
-    # bert2tag
-    def test_bert2tag(self, inputs, lengths):
-        self.network.eval()
-        with torch.no_grad():
-            logits = self.network(**inputs)
-            logits = F.softmax(logits, dim=-1)
-        logits = logits.data.cpu().tolist()
-        assert len(logits) == sum(lengths)
-
-        logit_lists = []
-        sum_len = 0
-        for l in lengths:
-            logit_lists.append(logits[sum_len:sum_len + l])
-            sum_len += l
-        return logit_lists
-
-    # bert2crf
-    def test_bert2crf(self, inputs, lengths):
-        self.network.eval()
-        with torch.no_grad():
-            logits, emission = self.network(**inputs)
-
-        logits = logits.data.cpu().tolist()
-        emission = emission.data.cpu().tolist()
-        assert len(logits) == sum(lengths)
-        logit_lists = []
-        emission_lists = []
-        sum_len = 0
-        for l in lengths:
-            logit_lists.append(logits[sum_len:sum_len + l])
-            emission_lists.append(emission[sum_len:sum_len + l])
-            sum_len += l
-        return logit_lists, emission_lists
-
     # bert2chunk
     def test_bert2chunk(self, inputs, lengths, max_phrase_words):
         self.network.eval()
@@ -179,20 +110,6 @@ class KeyphraseSpanExtraction(object):
                 batch_logit.append(logits[sum_len:sum_len + l - n])
                 sum_len += (l - n)
             logit_lists.append(batch_logit)
-        return logit_lists
-
-    # bert2rank & bert2joint
-    def test_bert2rank(self, inputs, numbers):
-        self.network.eval()
-        with torch.no_grad():
-            logits = self.network(**inputs)  # shape = (batch_size, max_diff_gram_num)
-
-        assert (logits.shape[0] == len(numbers)) and (logits.shape[1] == max(numbers))
-        logits = logits.data.cpu().tolist()
-
-        logit_lists = []
-        for batch_id, num in enumerate(numbers):
-            logit_lists.append(logits[batch_id][:num])
         return logit_lists
 
     # -------------------------------------------------------------------------------------------

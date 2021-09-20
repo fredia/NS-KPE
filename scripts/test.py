@@ -1,160 +1,25 @@
 import os
-import sys
-import time
-import tqdm
-import json
 import torch
-
 import logging
 import argparse
 import traceback
-import numpy as np
 from tqdm import tqdm
 
-sys.path.append("..")
-
-import config
-import utils
-from utils import pred_arranger, pred_saver
-
-from bertkpe import tokenizer_class, Idx2Tag, Tag2Idx, Decode_Candidate_Number
-from bertkpe import dataloader, generator, evaluator
-from model import KeyphraseSpanExtraction
-
-torch.backends.cudnn.benchmark = True
+from scripts import config, utils
+from scripts.utils import pred_arranger, pred_saver
+from scripts.model_chunk import KeyphraseSpanExtraction
+from generator.Chunk2Phrase import chunk2phrase
 from torch.utils.data.distributed import DistributedSampler
 from tensorboardX import SummaryWriter
+from transformers import RobertaTokenizer
+from dataloader.bert2chunk_dataloader import batchify_bert2chunk_features_for_test, \
+    batchify_bert2chunk_features_for_train
+from dataloader.loader_utils import build_dataset
+
+torch.backends.cudnn.benchmark = True
 
 logger = logging.getLogger()
-
-
-# -------------------------------------------------------------------------------------------
-# Decoder Selector
-# -------------------------------------------------------------------------------------------
-def select_decoder(name):
-    if name == 'bert2span':
-        return bert2span_decoder
-    elif name == 'bert2topic':
-        return bert2span_decoder
-    elif name == 'bert2topic2':
-        return bert2span_decoder
-    elif name == 'bert2topic14':
-        return bert2span_decoder
-    elif name == 'bert2vae':
-        return bert2span_decoder
-    elif name == 'bert2lda':
-        return bert2span_decoder
-    elif name == 'bert2ldacon':
-        return bert2span_decoder
-    elif name == 'bert2tag':
-        return bert2tag_decoder
-    elif name == 'bert2crf':
-        return bert2crf_decoder
-    elif name == 'bert2chunk':
-        return bert2chunk_decoder
-    elif name in ['bert2rank', 'bert2joint', 'bert2cos', 'emb2joint', 'bert2stage', 'bert2gi']:
-        return bert2rank_decoder
-
-    raise RuntimeError('Invalid retriever class: %s' % name)
-
-
-# bert2span
-def bert2span_decoder(args, data_loader, dataset, model, test_input_refactor,
-                      pred_arranger, mode, stem_flag=False):
-    logging.info('Start Generating Keyphrases for %s ... \n' % mode)
-    test_time = utils.Timer()
-    if args.dataset_class == "kp20k": stem_flag = True
-
-    tot_examples = 0
-    tot_predictions = []
-    for step, batch in enumerate(tqdm(data_loader)):
-        inputs, indices, lengths = test_input_refactor(batch, model.args.device)
-        try:
-            start_lists, end_lists = model.test_bert2span(inputs, lengths)
-        except:
-            logging.error(str(traceback.format_exc()))
-            continue
-
-        # decode logits to phrase per batch
-        params = {'examples': dataset.examples,
-                  'start_lists': start_lists,
-                  'end_lists': end_lists,
-                  'indices': indices,
-                  'max_phrase_words': args.max_phrase_words,
-                  'return_num': Decode_Candidate_Number[args.dataset_class],
-                  'stem_flag': stem_flag}
-
-        batch_predictions = generator.span2phrase(**params)
-        tot_predictions.extend(batch_predictions)
-
-    candidate = pred_arranger(tot_predictions)
-    return candidate
-
-
-# bert2tag
-def bert2tag_decoder(args, data_loader, dataset, model, test_input_refactor,
-                     pred_arranger, mode, stem_flag=False):
-    logging.info('Start Generating Keyphrases for %s ... \n' % mode)
-    test_time = utils.Timer()
-    if args.dataset_class == "kp20k": stem_flag = True
-
-    tot_examples = 0
-    tot_predictions = []
-    for step, batch in enumerate(tqdm(data_loader)):
-        inputs, indices, lengths = test_input_refactor(batch, model.args.device)
-        try:
-            logit_lists = model.test_bert2tag(inputs, lengths)
-        except:
-            logging.error(str(traceback.format_exc()))
-            continue
-
-        # decode logits to phrase per batch
-        params = {'examples': dataset.examples,
-                  'logit_lists': logit_lists,  # batch,seq,label_num
-                  'indices': indices,
-                  'max_phrase_words': args.max_phrase_words,
-                  'pooling': args.tag_pooling,
-                  'return_num': Decode_Candidate_Number[args.dataset_class],
-                  'stem_flag': stem_flag}
-
-        batch_predictions = generator.tag2phrase(**params)
-        tot_predictions.extend(batch_predictions)
-
-    candidate = pred_arranger(tot_predictions)
-    return candidate
-
-
-# bert2crf
-def bert2crf_decoder(args, data_loader, dataset, model, test_input_refactor,
-                     pred_arranger, mode, stem_flag=False):
-    logging.info('Start Generating Keyphrases for %s ... \n' % mode)
-    test_time = utils.Timer()
-    if args.dataset_class == "kp20k": stem_flag = True
-
-    tot_examples = 0
-    tot_predictions = []
-    for step, batch in enumerate(tqdm(data_loader)):
-        inputs, indices, lengths = test_input_refactor(batch, model.args.device)
-        try:
-            logit_lists, emission_lists = model.test_bert2crf(inputs, lengths)
-        except:
-            logging.error(str(traceback.format_exc()))
-            continue
-
-        # decode logits to phrase per batch
-        params = {'examples': dataset.examples,
-                  'emission_lists': emission_lists,
-                  'logit_lists': logit_lists,  # batch,seq,label_num
-                  'indices': indices,
-                  'max_phrase_words': args.max_phrase_words,
-                  'return_num': Decode_Candidate_Number[args.dataset_class],
-                  'stem_flag': stem_flag}
-
-        batch_predictions = generator.crf2phrase(**params)
-        tot_predictions.extend(batch_predictions)
-
-    candidate = pred_arranger(tot_predictions)
-    return candidate
+Decode_Candidate_Number = {'openkp': 5, 'kp20k': 50, 'inspec': 50, 'nus': 50, 'krapivin': 50, 'semeval': 50}
 
 
 # Bert2Chunk
@@ -182,38 +47,7 @@ def bert2chunk_decoder(args, data_loader, dataset, model, test_input_refactor,
                   'return_num': Decode_Candidate_Number[args.dataset_class],
                   'stem_flag': stem_flag}
 
-        batch_predictions = generator.chunk2phrase(**params)
-        tot_predictions.extend(batch_predictions)
-
-    candidate = pred_arranger(tot_predictions)
-    return candidate
-
-
-# Bert2Rank & Bert2Joint
-def bert2rank_decoder(args, data_loader, dataset, model, test_input_refactor,
-                      pred_arranger, mode, stem_flag=False):
-    logging.info('Start Generating Keyphrases for %s ... \n' % mode)
-    test_time = utils.Timer()
-    if args.dataset_class == "kp20k": stem_flag = True
-
-    tot_examples = 0
-    tot_predictions = []
-    for step, batch in enumerate(tqdm(data_loader)):
-        inputs, indices, lengths = test_input_refactor(batch, model.args.device)
-        try:
-            logit_lists = model.test_bert2rank(inputs, lengths)
-        except:
-            logging.error(str(traceback.format_exc()))
-            continue
-
-        # decode logits to phrase per batch
-        params = {'examples': dataset.examples,
-                  'logit_lists': logit_lists,
-                  'indices': indices,
-                  'return_num': Decode_Candidate_Number[args.dataset_class],
-                  'stem_flag': stem_flag}
-
-        batch_predictions = generator.rank2phrase(**params)
+        batch_predictions = chunk2phrase(**params)
         tot_predictions.extend(batch_predictions)
 
     candidate = pred_arranger(tot_predictions)
@@ -259,15 +93,15 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------------------------
     # init tokenizer & Converter 
     logger.info("start setting tokenizer, dataset and dataloader (local_rank = {})... ".format(args.local_rank))
-    tokenizer = tokenizer_class[args.pretrain_model_type].from_pretrained(args.cache_dir)
+    tokenizer = RobertaTokenizer[args.pretrain_model_type].from_pretrained(args.cache_dir)
 
     # -------------------------------------------------------------------------------------------
     # Select dataloader
-    batchify_features_for_train, batchify_features_for_test = dataloader.get_class(args.model_class)
+    batchify_features_for_train, batchify_features_for_test = batchify_bert2chunk_features_for_train, batchify_bert2chunk_features_for_test
 
     # -------------------------------------------------------------------------------------------
     # build dev dataloader
-    dev_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'dev'})
+    dev_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'dev'})
     args.test_batch_size = args.per_gpu_test_batch_size * max(1, args.n_gpu)
     dev_sampler = torch.utils.data.sampler.SequentialSampler(dev_dataset)
     dev_data_loader = torch.utils.data.DataLoader(
@@ -282,7 +116,7 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------------------------
     # build eval dataloader 
     if args.dataset_class == 'kp20k':
-        eval_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
+        eval_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
         eval_sampler = torch.utils.data.sampler.SequentialSampler(eval_dataset)
         eval_data_loader = torch.utils.data.DataLoader(
             eval_dataset,
@@ -315,7 +149,7 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------------------------
     # Method Select
     # -------------------------------------------------------------------------------------------
-    candidate_decoder = select_decoder(args.model_class)
+    candidate_decoder = bert2chunk_decoder
     evaluate_script, main_metric_name = utils.select_eval_script(args.dataset_class)
     _, test_input_refactor = utils.select_input_refactor(args.model_class)
 

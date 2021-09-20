@@ -1,19 +1,12 @@
-import math
 import torch
 import logging
 import traceback
 import numpy as np
 from torch import nn
-import torch.nn.functional as F
-from torch.nn.parameter import Parameter
 from torch.nn import CrossEntropyLoss
 from ..transformers import BertPreTrainedModel, RobertaModel
 
-from itertools import repeat
-from torch._six import container_abcs
-
 logger = logging.getLogger()
-
 
 # -------------------------------------------------------------------------------------------
 # CnnGram Extractor
@@ -60,10 +53,10 @@ class CNNGramer(nn.Module):
 # -------------------------------------------------------------------------------------------
 # Inherit BertPreTrainedModel
 # -------------------------------------------------------------------------------------------
-class RobertaForCnnGramClassification7(BertPreTrainedModel):
+class RobertaForCnnGramClassification(BertPreTrainedModel):
 
     def __init__(self, config):
-        super(RobertaForCnnGramClassification7, self).__init__(config)
+        super(RobertaForCnnGramClassification, self).__init__(config)
 
         cnn_output_size = 512
 
@@ -84,7 +77,7 @@ class RobertaForCnnGramClassification7(BertPreTrainedModel):
 # RobertaForCnnGramExtractor
 # -------------------------------------------------------------------------------------------
 
-class RobertaForCnnGramExtractor7(RobertaForCnnGramClassification7):
+class RobertaForCnnGramExtractor(RobertaForCnnGramClassification):
 
     def forward(self, input_ids, attention_mask, valid_ids, active_mask, valid_output, labels=None):
 

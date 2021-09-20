@@ -7,56 +7,16 @@ import pickle
 import nltk
 import unicodedata
 from tqdm import tqdm
-from ..constant import UNK_WORD, BOS_WORD, EOS_WORD
+
 from nltk.stem.porter import PorterStemmer
 from torch.utils.data import Dataset
 from gensim import corpora
+from dataloader.bert2chunk_dataloader import bert2chunk_preprocessor, bert2chunk_converter
 
+UNK_WORD = '[UNK]'
+BOS_WORD = '[CLS]'
+EOS_WORD = '[SEP]'
 stemmer = PorterStemmer()
-
-from .bert2span_dataloader import (bert2span_preprocessor, bert2span_converter)
-from .bert2topic_dataloader import (bert2topic_preprocessor, bert2topic_converter)
-from .bert2vae_dataloader import (bert2vae_preprocessor, bert2vae_converter)
-from .bert2tag_dataloader import (bert2tag_preprocessor, bert2tag_converter)
-from .bert2chunk_dataloader import (bert2chunk_preprocessor, bert2chunk_converter)
-
-from .bert2rank_dataloader import (bert2rank_preprocessor, bert2rank_converter)
-from .bert2joint_dataloader import (bert2joint_preprocessor, bert2joint_converter)
-from .bert2lda_dataloader import (bert2lda_preprocessor, bert2lda_converter)
-
-example_preprocessor = {'bert2span': bert2span_preprocessor,
-                        'bert2topic': bert2span_preprocessor,
-                        'bert2topic2': bert2span_preprocessor,
-                        'bert2topic14': bert2topic_preprocessor,
-                        'bert2vae': bert2vae_preprocessor,
-                        'bert2tag': bert2tag_preprocessor,
-                        'bert2crf': bert2tag_preprocessor,
-                        'bert2chunk': bert2chunk_preprocessor,
-                        'bert2rank': bert2rank_preprocessor,
-                        'bert2joint': bert2joint_preprocessor,
-                        'bert2cos': bert2joint_preprocessor,
-                        'emb2joint': bert2joint_preprocessor,
-                        'bert2stage': bert2joint_preprocessor,
-                        'bert2gi': bert2joint_preprocessor,
-                        'bert2lda': bert2lda_preprocessor,
-                        }
-
-feature_converter = {'bert2span': bert2span_converter,
-                     'bert2topic': bert2span_converter,
-                     'bert2topic2': bert2span_converter,
-                     'bert2topic14': bert2topic_converter,
-                     'bert2vae': bert2vae_converter,
-                     'bert2tag': bert2tag_converter,
-                     'bert2crf': bert2tag_converter,
-                     'bert2chunk': bert2chunk_converter,
-                     'bert2rank': bert2rank_converter,
-                     'bert2joint': bert2joint_converter,
-                     'bert2cos': bert2joint_converter,
-                     'emb2joint': bert2joint_converter,
-                     'bert2stage': bert2joint_converter,
-                     'bert2gi': bert2joint_converter,
-                     'bert2lda': bert2lda_converter,
-                     }
 
 logger = logging.getLogger()
 
@@ -92,13 +52,13 @@ class build_dataset_iter(Dataset):
     def __init__(self, args, tokenizer, mode, examples):
         pretrain_model = 'bert' if 'roberta' not in args.pretrain_model_type else 'roberta'
 
-        cached_examples = example_preprocessor[args.model_class](**{'examples': examples,
-                                                                    'tokenizer': tokenizer,
-                                                                    'max_token': args.max_token,
-                                                                    'pretrain_model': pretrain_model,
-                                                                    'mode': mode,
-                                                                    'max_phrase_words': args.max_phrase_words,
-                                                                    'stem_flag': True if args.dataset_class != 'openkp' else False})
+        cached_examples = bert2chunk_preprocessor(**{'examples': examples,
+                                                     'tokenizer': tokenizer,
+                                                     'max_token': args.max_token,
+                                                     'pretrain_model': pretrain_model,
+                                                     'mode': mode,
+                                                     'max_phrase_words': args.max_phrase_words,
+                                                     'stem_flag': True if args.dataset_class != 'openkp' else False})
 
         # --------------------------------------------------------------------------------------------
         self.mode = mode
@@ -112,8 +72,8 @@ class build_dataset_iter(Dataset):
         return len(self.examples)
 
     def __getitem__(self, index):
-        return feature_converter[self.model_class](index, self.examples[index],
-                                                   self.tokenizer, self.mode, self.max_phrase_words)
+        return bert2chunk_converter(index, self.examples[index],
+                                    self.tokenizer, self.mode, self.max_phrase_words)
 
 
 class build_dataset(Dataset):
@@ -135,13 +95,13 @@ class build_dataset(Dataset):
         except:
             logger.info("start loading source %s %s data ..." % (args.dataset_class, mode))
             examples = load_dataset(os.path.join(args.preprocess_folder, "%s.%s.json" % (args.dataset_class, mode)))
-            cached_examples = example_preprocessor[args.model_class](**{'examples': examples,
-                                                                        'tokenizer': tokenizer,
-                                                                        'max_token': args.max_token,
-                                                                        'pretrain_model': pretrain_model,
-                                                                        'mode': mode,
-                                                                        'max_phrase_words': args.max_phrase_words,
-                                                                        'stem_flag': True if args.dataset_class != 'openkp' else False})
+            cached_examples = bert2chunk_preprocessor(**{'examples': examples,
+                                                         'tokenizer': tokenizer,
+                                                         'max_token': args.max_token,
+                                                         'pretrain_model': pretrain_model,
+                                                         'mode': mode,
+                                                         'max_phrase_words': args.max_phrase_words,
+                                                         'stem_flag': True if args.dataset_class != 'openkp' else False})
             if args.local_rank in [-1, 0]:
                 save_cached_features(**{'cached_examples': cached_examples,
                                         'cached_features_dir': args.cached_features_dir,
@@ -161,8 +121,8 @@ class build_dataset(Dataset):
         return len(self.examples)
 
     def __getitem__(self, index):
-        return feature_converter[self.model_class](index, self.examples[index],
-                                                   self.tokenizer, self.mode, self.max_phrase_words)
+        return bert2chunk_converter(index, self.examples[index],
+                                    self.tokenizer, self.mode, self.max_phrase_words)
 
 
 # -------------------------------------------------------------------------------------------

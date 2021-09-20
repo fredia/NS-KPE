@@ -1,27 +1,21 @@
 import os
-import sys
-import time
-import tqdm
-import json
 import torch
 import logging
 import argparse
 import traceback
-import numpy as np
 from tqdm import tqdm
 
-sys.path.append("..")
-import test
-import utils
-import config
-from model import KeyphraseSpanExtraction
-from utils import pred_arranger, pred_saver
-from bertkpe import dataloader, generator, evaluator
-from bertkpe import tokenizer_class, Idx2Tag, Tag2Idx, Decode_Candidate_Number
+from scripts import config, utils
+from scripts.utils import pred_arranger, pred_saver
+from scripts.model_chunk import KeyphraseSpanExtraction
+from scripts.test import bert2chunk_decoder
 
 torch.backends.cudnn.benchmark = True
 from torch.utils.data.distributed import DistributedSampler
-
+from transformers import RobertaTokenizer
+from dataloader.bert2chunk_dataloader import batchify_bert2chunk_features_for_test, \
+    batchify_bert2chunk_features_for_train
+from dataloader.loader_utils import build_dataset
 from tensorboardX import SummaryWriter
 
 logger = logging.getLogger()
@@ -113,15 +107,15 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------------------------
     # init tokenizer & Converter 
     logger.info("start setting tokenizer, dataset and dataloader (local_rank = {})... ".format(args.local_rank))
-    tokenizer = tokenizer_class[args.pretrain_model_type].from_pretrained(args.cache_dir)
+    tokenizer = RobertaTokenizer.from_pretrained(args.cache_dir)
 
     # -------------------------------------------------------------------------------------------
     # Select dataloader
-    batchify_features_for_train, batchify_features_for_test = dataloader.get_class(args.model_class)
+    batchify_features_for_train, batchify_features_for_test = batchify_bert2chunk_features_for_train, batchify_bert2chunk_features_for_test
 
     # -------------------------------------------------------------------------------------------
     # build train dataloader
-    train_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'train'})
+    train_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'train'})
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = torch.utils.data.sampler.RandomSampler(
         train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
@@ -137,7 +131,7 @@ if __name__ == "__main__":
 
     # -------------------------------------------------------------------------------------------
     # build dev dataloader 
-    dev_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'dev'})
+    dev_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'dev'})
     args.test_batch_size = args.per_gpu_test_batch_size * max(1, args.n_gpu)
     dev_sampler = torch.utils.data.sampler.SequentialSampler(dev_dataset)
     dev_data_loader = torch.utils.data.DataLoader(
@@ -153,7 +147,7 @@ if __name__ == "__main__":
     # -------------------------------------------------------------------------------------------
     # build eval dataloader 
     if args.dataset_class == 'kp20k':
-        eval_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
+        eval_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
         eval_sampler = torch.utils.data.sampler.SequentialSampler(eval_dataset)
         eval_data_loader = torch.utils.data.DataLoader(
             eval_dataset,
@@ -166,7 +160,7 @@ if __name__ == "__main__":
 
         args.dataset_class = 'inspec'
         args.preprocess_folder = os.path.join(preprocess_folder, args.dataset_class)
-        inspec_eval_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
+        inspec_eval_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
         inspec_eval_sampler = torch.utils.data.sampler.SequentialSampler(inspec_eval_dataset)
         inspec_eval_data_loader = torch.utils.data.DataLoader(
             inspec_eval_dataset,
@@ -179,7 +173,7 @@ if __name__ == "__main__":
 
         args.dataset_class = 'nus'
         args.preprocess_folder = os.path.join(preprocess_folder, args.dataset_class)
-        nus_eval_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
+        nus_eval_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
         nus_eval_sampler = torch.utils.data.sampler.SequentialSampler(nus_eval_dataset)
         nus_eval_data_loader = torch.utils.data.DataLoader(
             nus_eval_dataset,
@@ -192,7 +186,7 @@ if __name__ == "__main__":
 
         args.dataset_class = 'krapivin'
         args.preprocess_folder = os.path.join(preprocess_folder, args.dataset_class)
-        krapivin_eval_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
+        krapivin_eval_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
         krapivin_eval_sampler = torch.utils.data.sampler.SequentialSampler(krapivin_eval_dataset)
         krapivin_eval_data_loader = torch.utils.data.DataLoader(
             krapivin_eval_dataset,
@@ -205,7 +199,7 @@ if __name__ == "__main__":
 
         args.dataset_class = 'semeval'
         args.preprocess_folder = os.path.join(preprocess_folder, args.dataset_class)
-        semeval_eval_dataset = dataloader.build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
+        semeval_eval_dataset = build_dataset(**{'args': args, 'tokenizer': tokenizer, 'mode': 'eval'})
         semeval_eval_sampler = torch.utils.data.sampler.SequentialSampler(semeval_eval_dataset)
         semeval_eval_data_loader = torch.utils.data.DataLoader(
             semeval_eval_dataset,
@@ -277,7 +271,7 @@ if __name__ == "__main__":
 
     # -------------------------------------------------------------------------------------------
     # Method Select
-    candidate_decoder = test.select_decoder(args.model_class)
+    candidate_decoder = bert2chunk_decoder
     evaluate_script, main_metric_name = utils.select_eval_script(args.dataset_class)
     train_input_refactor, test_input_refactor = utils.select_input_refactor(args.model_class)
 

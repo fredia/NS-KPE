@@ -1,6 +1,6 @@
 export DATA_PATH=../data
 
-CUDA_VISIBLE_DEVICES=2,3 python test.py --run_mode test \
+CUDA_VISIBLE_DEVICES=0,1 python test.py --run_mode test \
 --model_class bert2joint \
 --pretrain_model_type roberta-base \
 --dataset_class openkp \
@@ -8,4 +8,4 @@ CUDA_VISIBLE_DEVICES=2,3 python test.py --run_mode test \
 --preprocess_folder $DATA_PATH/prepro_dataset \
 --pretrain_model_path $DATA_PATH/pretrain_model \
 --cached_features_dir $DATA_PATH/cached_features \
---eval_checkpoint /home/sunsi/checkpoints/bert2joint/bert2joint.openkp.roberta.checkpoint \
+--eval_checkpoint /home/sunsi/checkpoints/bert2joint/bert2joint.openkp.roberta.checkpoint

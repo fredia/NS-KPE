@@ -3,15 +3,11 @@ import re
 import sys
 import json
 import time
-import torch
 import codecs
-import pickle
 import logging
 import argparse
-import unicodedata
-import numpy as np
 from tqdm import tqdm
-import prepro_utils
+from preprocess import prepro_utils
 
 dataset_dict = {'openkp': [('EvalPublic', 'eval'), ('Dev', 'dev'), ('Train', 'train')],
                 'kp20k': [('test', 'eval'), ('valid', 'dev'), ('train', 'train')],
